@@ -170,6 +170,22 @@ if (!od.metaharness) { console.error('missing metaharness in optionalDependencie
 if (j.dependencies && j.dependencies.metaharness) { console.error('metaharness leaked into dependencies'); process.exit(1); }
 " 2>/dev/null && ok || bad "ruflo wrapper missing metaharness optionalDep"
 
+step "17p. bench-recordpair-overhead — measures iter-12 default-path cost (iter 24)"
+F="$ROOT/scripts/bench-recordpair-overhead.mjs"
+miss=""
+[[ -x "$F" ]] || miss="$miss not-executable"
+node --check "$F" 2>/dev/null || miss="$miss syntax-error"
+# Benchmark targets the exact iter-12 source pattern
+grep -q "CLAUDE_FLOW_ROUTER_PARALLEL_LOG === '1'" "$F" || miss="$miss no-flag-literal"
+# Both flag-OFF and flag-ON variants measured
+grep -q "FLAG OFF" "$F" || miss="$miss no-off-variant"
+grep -q "FLAG ON" "$F" || miss="$miss no-on-variant"
+# Uses performance.now() not Date.now() for sub-μs resolution
+grep -q "performance.now" "$F" || miss="$miss no-perf-now"
+# Reports per-call overhead in nanoseconds (the meaningful unit)
+grep -q "meanNsPerCall\|ns per route" "$F" || miss="$miss no-ns-reporting"
+[[ -z "$miss" ]] && ok || bad "$miss"
+
 step "17o. test-mcp-tools runtime contract test (ADR-150 — iter 23)"
 F="$ROOT/scripts/test-mcp-tools.mjs"
 miss=""
