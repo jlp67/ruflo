@@ -170,6 +170,23 @@ if (!od.metaharness) { console.error('missing metaharness in optionalDependencie
 if (j.dependencies && j.dependencies.metaharness) { console.error('metaharness leaked into dependencies'); process.exit(1); }
 " 2>/dev/null && ok || bad "ruflo wrapper missing metaharness optionalDep"
 
+step "17l. test-graceful-degradation drill (ADR-150 rule #3 — iter 19)"
+F="$ROOT/scripts/test-graceful-degradation.mjs"
+miss=""
+[[ -x "$F" ]] || miss="$miss not-executable"
+node --check "$F" 2>/dev/null || miss="$miss syntax-error"
+# Asserts the contract literal: exit 0 AND degraded:true
+grep -q 'exit code = 0' "$F" || miss="$miss no-exit-0-assertion"
+grep -q '"degraded".*true' "$F" || miss="$miss no-degraded-true-assertion"
+# Skills covered (all 5 metaharness-binary-dependent ones)
+for sub in score genome mcp-scan threat-model oia-audit; do
+  grep -q "name: '${sub}'" "$F" || miss="$miss missing-${sub}"
+done
+# Unreachable-registry stub (no actual network)
+grep -q "npm_config_registry" "$F" || miss="$miss no-registry-stub"
+grep -q "no-such-registry" "$F" || miss="$miss no-fake-host"
+[[ -z "$miss" ]] && ok || bad "$miss"
+
 step "17k. init + hooks discovery surfaces metaharness (iter 18)"
 INIT="$ROOT/../../v3/@claude-flow/cli/src/commands/init.ts"
 HOOKS="$ROOT/../../v3/@claude-flow/cli/src/commands/hooks.ts"
