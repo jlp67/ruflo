@@ -191,6 +191,22 @@ grep -q "execCli(\[\s*'-y'\s*,\s*'metaharness@latest'" "$F" 2>/dev/null || \
 grep -q "cwd: opts" "$F" || miss="$miss no-cwd-passthrough"
 [[ -z "$miss" ]] && ok || bad "$miss"
 
+step "17z25. SEVERITY_RANK covers iter-50 parser output + safe ?? 0 lookup (iter 62)"
+miss=""
+OIA="$ROOT/scripts/oia-audit.mjs"
+# Extended SEVERITY_RANK has all 7 keys
+for sev in clean info low medium warn high error critical; do
+  grep -qE "\\b${sev}: [0-9]" "$OIA" 2>/dev/null || miss="$miss missing-rank-${sev}"
+done
+# Safe ?? 0 lookup eliminates NaN-compare hazard
+grep -q "SEVERITY_RANK\[s\] ?? 0\|sRank = SEVERITY_RANK" "$OIA" 2>/dev/null || miss="$miss no-safe-rank-lookup"
+# Comment block documents the rationale
+grep -q "would NOT bump composite worst" "$OIA" 2>/dev/null || miss="$miss no-rationale-comment"
+# Runtime: live oia-audit still produces clean (only INFO finding)
+OUT=$(node "$OIA" --dry-run --format json 2>/dev/null)
+echo "$OUT" | grep -q '"worst": "clean"' || miss="$miss live-not-clean"
+[[ -z "$miss" ]] && ok || bad "$miss"
+
 step "17z24. doctor required-files include iter-53 + iter-56 surfaces (iter 61)"
 miss=""
 DOC="$ROOT/../../v3/@claude-flow/cli/src/commands/doctor.ts"

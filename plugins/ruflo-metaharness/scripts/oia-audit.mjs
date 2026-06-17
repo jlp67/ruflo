@@ -27,7 +27,41 @@
 import { spawnSync } from 'node:child_process';
 import { runHarness, runMetaharness, runHarnessAsync, runMetaharnessAsync, emitDegradedJsonAndExit, parseMcpScanText } from './_harness.mjs';
 
-const SEVERITY_RANK = { clean: 0, low: 1, medium: 2, high: 3 };
+// iter 62 — extended SEVERITY_RANK to include severity values the
+// iter-50 text parser actually emits. Upstream `harness mcp-scan`
+// outputs [INFO], [WARN], [HIGH], [CRITICAL] (and possibly [ERROR]).
+// Pre-iter-62, only `clean/low/medium/high` were ranked; any other
+// severity returned `undefined` from the table, and the reduce
+// expression `SEVERITY_RANK[s] > SEVERITY_RANK[acc]` evaluated to
+// false (NaN > 0 === false), silently ignoring them in the composite
+// severity rollup. A [CRITICAL] finding would NOT bump composite worst.
+//
+// Mapping rationale:
+//   info     → 0 (informational, no harm)
+//   low      → 1
+//   medium   → 2
+//   warn     → 2 (warn ≈ medium)
+//   high     → 3
+//   critical → 4 (critical > high — explicit elevation)
+//   error    → 3 (error ≈ high; some tools use ERROR for HIGH-equivalent)
+const SEVERITY_RANK = {
+  clean: 0, info: 0,
+  low: 1,
+  medium: 2, warn: 2,
+  high: 3, error: 3,
+  critical: 4,
+};
+
+// Composite severity-to-string mapping respects the new rank space:
+// anything ≥ 3 reports as 'high' so existing alert thresholds stay
+// honest (a CRITICAL finding triggers --alert-on-worst high).
+function rankToSeverity(rank) {
+  if (rank >= 4) return 'critical';
+  if (rank >= 3) return 'high';
+  if (rank >= 2) return 'medium';
+  if (rank >= 1) return 'low';
+  return 'clean';
+}
 const NS = process.env.OIA_AUDIT_NAMESPACE || 'metaharness-audit';
 const CLI_PKG = process.env.CLI_CORE === '1'
   ? '@claude-flow/cli-core@alpha'
@@ -131,19 +165,28 @@ async function main() {
   }
 
   // Aggregate the worst-severity signal across mcp-scan + threat-model.
+  // iter 62 — safe lookup using `?? 0` so unknown severities don't
+  // silently bump composite via NaN-comparison (was: `acc | undefined`
+  // → reduce never updated). Now any [WARN]/[CRITICAL]/[ERROR] finding
+  // correctly elevates composite worst.
   const tmWorst = String(tm.json?.worst || 'clean').toLowerCase();
   const mcpFindings = Array.isArray(mcp.json?.findings) ? mcp.json.findings : [];
   const mcpWorst = mcpFindings.reduce((acc, f) => {
     const s = String(f.severity || 'low').toLowerCase();
-    return SEVERITY_RANK[s] > SEVERITY_RANK[acc] ? s : acc;
+    const sRank = SEVERITY_RANK[s] ?? 0;
+    const accRank = SEVERITY_RANK[acc] ?? 0;
+    return sRank > accRank ? s : acc;
   }, 'clean');
-  const compositeWorst = SEVERITY_RANK[tmWorst] > SEVERITY_RANK[mcpWorst] ? tmWorst : mcpWorst;
+  const tmRank = SEVERITY_RANK[tmWorst] ?? 0;
+  const mcpRank = SEVERITY_RANK[mcpWorst] ?? 0;
+  const compositeWorst = tmRank > mcpRank ? tmWorst : mcpWorst;
 
   let alertTriggered = false;
   let alertReason = null;
   if (ARGS.alertWorst !== null) {
-    const threshold = SEVERITY_RANK[ARGS.alertWorst];
-    if (SEVERITY_RANK[compositeWorst] >= threshold && threshold > 0) {
+    const threshold = SEVERITY_RANK[ARGS.alertWorst] ?? 0;
+    const compositeRank = SEVERITY_RANK[compositeWorst] ?? 0;
+    if (compositeRank >= threshold && threshold > 0) {
       alertTriggered = true;
       alertReason = `composite worst=${compositeWorst} ≥ ${ARGS.alertWorst}`;
     }
