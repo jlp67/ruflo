@@ -191,6 +191,22 @@ grep -q "execCli(\[\s*'-y'\s*,\s*'metaharness@latest'" "$F" 2>/dev/null || \
 grep -q "cwd: opts" "$F" || miss="$miss no-cwd-passthrough"
 [[ -z "$miss" ]] && ok || bad "$miss"
 
+step "17z44. fingerprint-schema compat tripwire (iter 81)"
+miss=""
+F="$ROOT/../../scripts/check-fingerprint-schema.mjs"
+[[ -x "$F" ]] || miss="$miss not-executable"
+node --check "$F" 2>/dev/null || miss="$miss syntax-error"
+# All 14 fields listed in the tripwire script
+for field in harnessFit compileConfidence taskCoverage toolSafety memoryUsefulness estCostPerRunUsd recommendedMode archetype template repo_type agent_topology risk_score test_confidence publish_readiness; do
+  grep -q "'${field}'" "$F" 2>/dev/null || miss="$miss missing-field-${field}"
+done
+# CI workflow runs it
+W="$ROOT/../../.github/workflows/metaharness-ci.yml"
+grep -q "check-fingerprint-schema.mjs" "$W" 2>/dev/null || miss="$miss not-in-ci"
+# Runtime: tripwire passes against installed metaharness
+node "$F" >/dev/null 2>&1 || miss="$miss tripwire-fails-locally"
+[[ -z "$miss" ]] && ok || bad "$miss"
+
 step "17z43. upstream mcp-scan format compat tripwire (iter 80)"
 miss=""
 F="$ROOT/../../scripts/check-mcp-scan-format.mjs"

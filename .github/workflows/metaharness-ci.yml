@@ -345,6 +345,19 @@ jobs:
           npx -y metaharness@latest --version
           echo "✓ metaharness CLI warm"
 
+      - name: Upstream fingerprint schema invariants (iter 81 — protects _similarity.mjs)
+        # If upstream `metaharness score|genome` renames any of the 14
+        # fields _similarity.mjs::projectToVec reads (harnessFit,
+        # compileConfidence, taskCoverage, toolSafety, memoryUsefulness,
+        # estCostPerRunUsd, recommendedMode, archetype, template, repo_type,
+        # agent_topology, risk_score, test_confidence, publish_readiness),
+        # projectToVec defaults that field to 0 and similarity silently
+        # degrades to categorical+jaccard-only signal. Same class of bug
+        # as iter-47 (CLI binary schema mismatch).
+        run: |
+          node scripts/check-fingerprint-schema.mjs --format json
+          echo "✓ upstream fingerprint schema compatible with _similarity.mjs"
+
       - name: Upstream mcp-scan format invariants (iter 80 — protects iter-50 parser)
         # If upstream `harness mcp-scan` ever changes its text format,
         # iter-50's parseMcpScanText silently returns empty findings and
