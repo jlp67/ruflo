@@ -142,19 +142,19 @@ async function main() {
       input = { dryRun: true };
     }
 
-    // iter 124 — bumped default 30s → 60s. The first MCP tool that shells
-    // out via npx pays the cold-cache warmup cost (~25s observed), which
-    // pushed metaharness_audit_list past the prior 30s budget intermittently.
-    // iter 128 — oia_audit composes 5 sub-audits; same 90s budget as
-    // drift_from_history (also a chain-tool).
-    // iter 130 — also bump audit_list to 90s. In CI cold-cache, even after
-    // oia_audit warmed up the npx cache, audit_list still timed out at 60s
-    // (likely the memory `npx claude-flow memory list` invocation hits its
-    // own cold path). audit_list is in the chain-tool bracket too.
+    // iter 124 → 130 — timeouts have crept up as CI cold-cache npx
+    // warmup costs got measured. Final budgets:
+    //   default          : 60s
+    //   chain-tools      : 180s  (drift_from_history + oia_audit + audit_list)
+    // iter 131 — bumped chain-tool budget 90s → 180s. audit_list still
+    // timed out at 90s in CI; locally it runs in ~4s, but CI's
+    // `npx @claude-flow/cli@latest memory list` invocation pays both
+    // the npx fetch AND a full CLI startup (which loads agentic-flow +
+    // ONNX). 180s gives 30x headroom over the local cost.
     const isChainTool = tool.name === 'metaharness_drift_from_history'
       || tool.name === 'metaharness_oia_audit'
       || tool.name === 'metaharness_audit_list';
-    const timeoutMs = isChainTool ? 90_000 : 60_000;
+    const timeoutMs = isChainTool ? 180_000 : 60_000;
     const handlerPromise = tool.handler(input);
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error(`${timeoutMs / 1000}s handler timeout`)), timeoutMs));
