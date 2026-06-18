@@ -1,6 +1,6 @@
 {
   "name": "ruflo",
-  "version": "3.12.3",
+  "version": "3.12.4",
   "description": "Ruflo - Enterprise AI agent orchestration platform. Deploy 60+ specialized agents in coordinated swarms with self-learning, fault-tolerant consensus, vector memory, and MCP integration",
   "main": "bin/ruflo.js",
   "type": "module",
@@ -76,7 +76,8 @@
     "@opentelemetry/otlp-exporter-base": "0.52.1",
     "@opentelemetry/otlp-grpc-exporter-base": "0.52.1",
     "@opentelemetry/otlp-transformer": "0.52.1",
-    "agentdb": ">=3.0.0-alpha.16"
+    "agentdb": ">=3.0.0-alpha.16",
+    "agentic-flow": ">=2.0.14"
   },
   "engines": {
     "node": ">=20.0.0"
