@@ -43,7 +43,7 @@ claude --plugin-dir plugins/ruflo-cost-tracker
 | `cost-summary` | `/cost-summary [--format json\|markdown]` | Single-shot programmatic dump of all cost data (stable JSON contract for inter-plugin consumption) |
 | `cost-compact-context` | `/cost-compact-context <query>` | Wrap `getTokenOptimizer().getCompactContext()` for retrieval-compacted analysis (graceful fallback when agentic-flow not installed) |
 
-## Commands (20 subcommands)
+## Commands (23 subcommands)
 
 ```bash
 cost track                                # Auto-capture this session's token usage (producer)
