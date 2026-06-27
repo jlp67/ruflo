@@ -18,6 +18,12 @@
  *   - metaharness_security_bench upstream's "Darwin Shield" (their own ADR-155)
  *   - metaharness_bench          create/verify bench suites used by evolve --bench
  *
+ * @metaharness/redblue integration adds one tool that targets the standalone
+ * `@metaharness/redblue` npm package — adversarial red/blue LLM testing
+ * for the agents and apps you own:
+ *
+ *   - metaharness_redblue        red-team → judge → blue-patch → retest → report
+ *
  * Every tool resolves the corresponding plugin script
  * (`plugins/ruflo-metaharness/scripts/<X>.mjs`) via the same locator
  * the commands/metaharness.ts dispatcher uses, then spawns it with
@@ -46,8 +52,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 /**
  * Walk up from this module to find plugins/ruflo-metaharness/scripts/.
  * Handles three install layouts (mirrors commands/metaharness.ts).
+ *
+ * `requiredScript`, if provided, narrows the match the same way the
+ * commands dispatcher does — guards against the publish-artifact mirror
+ * (`v3/@claude-flow/cli/plugins/ruflo-metaharness/scripts/`, regenerated
+ * by `prepublishOnly`) shadowing the source when it's stale on a new
+ * script.
  */
-function locatePluginScripts(): string | null {
+function locatePluginScripts(requiredScript?: string): string | null {
   const candidates: string[] = [];
   let p = resolve(__dirname);
   for (let i = 0; i < 8; i++) {
@@ -59,7 +71,9 @@ function locatePluginScripts(): string | null {
   candidates.push(join(cwd, 'plugins', 'ruflo-metaharness', 'scripts'));
   candidates.push(join(cwd, 'node_modules', '@claude-flow', 'cli', 'plugins', 'ruflo-metaharness', 'scripts'));
   for (const c of candidates) {
-    if (existsSync(join(c, '_harness.mjs'))) return c;
+    if (!existsSync(join(c, '_harness.mjs'))) continue;
+    if (requiredScript && !existsSync(join(c, requiredScript))) continue;
+    return c;
   }
   return null;
 }
@@ -100,7 +114,7 @@ function runScript(scriptName: string, args: string[]): Promise<{
   success: boolean;
 }> {
   return new Promise((resolve) => {
-    const dir = locatePluginScripts();
+    const dir = locatePluginScripts(scriptName);
     if (!dir) {
       resolve({
         exitCode: 0, stdout: '', json: { degraded: true, reason: 'plugin-not-found' },
@@ -461,6 +475,60 @@ export const metaharnessTools: MCPTool[] = [
       if (input.suite) args.push('--suite', String(input.suite));
       if (input.out) args.push('--out', String(input.out));
       const r = await runScript('bench.mjs', args);
+      return { success: r.success, data: r.json, degraded: r.degraded, exitCode: r.exitCode };
+    },
+  },
+  // ───────────────────────────────────────────────────────────────────────
+  // @metaharness/redblue integration (1 tool).
+  // Backed by `@metaharness/redblue@~0.1.1`. Plugin script shells out via
+  // _redblue.mjs. Same {success, data, degraded, exitCode} contract.
+  //
+  // SAFETY: redblue itself enforces hard boundaries (no real creds, no live
+  // targets, no shell, no arbitrary network, no eval) in upstream's
+  // src/config/safety.ts at config-load time. The wrapper does NOT relax
+  // those — it only forwards argv with shell:false. `--mock-judge` is the
+  // $0 marker-fixture CI path; the real model judge requires
+  // $OPENROUTER_API_KEY which we never inject.
+  // ───────────────────────────────────────────────────────────────────────
+  {
+    name: 'metaharness_redblue',
+    description: 'Adversarial red/blue LLM testing via @metaharness/redblue — generates attacks across OWASP LLM Top-10 / NIST AI RMF families (prompt injection, tool misuse, data leakage, jailbreaks, denial-of-wallet), runs them against an LLM target YOU OWN, judges compromise, optionally applies declarative blue-team patches, retests, and emits a board-readable report with measured failure reduction. Use when shipping an LLM-powered product and you need a repeatable security gate before exposing it to users — eyeballing prompts is wrong because attack surface coverage requires the OWASP/NIST taxonomy and the judge has to be model-driven for jailbreak detection. SAFETY: upstream hard-enforces no-creds / no-live-targets / no-shell / no-network / no-eval at config-load time; cannot be relaxed via flags. For CI / offline use --mockJudge=true ($0 marker fixture). For real model judging set $OPENROUTER_API_KEY and accept the per-run cost capped by max_cost_usd (default $3). ' + MCP_SUCCESS_SEMANTIC,
+    category: 'metaharness',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subcommand: {
+          type: 'string',
+          enum: ['init', 'run', 'patch', 'attack', 'report'],
+          description: 'init = scaffold redblue.yaml; run = baseline (+ optional --patch); patch = baseline → patch → retest delta; attack = preview attacks; report = render existing report.json',
+          default: 'run',
+        },
+        config: { type: 'string', description: 'Path to redblue.yaml (default: ./redblue.yaml)' },
+        out: { type: 'string', description: 'Output report path for run/patch (default: temp file we read back inline)' },
+        in: { type: 'string', description: 'Input report path for `report` subcommand' },
+        tests: { type: 'number', description: 'How many test cases (run/patch only)' },
+        patch: { type: 'boolean', description: '`run` only — after baseline, apply blue-team patches and retest', default: false },
+        mockJudge: { type: 'boolean', description: '$0 TEST-ONLY marker fixture (no model calls). Use for CI / offline. Real judging requires OPENROUTER_API_KEY.', default: false },
+        family: { type: 'string', enum: ['prompt', 'tools', 'data', 'all'], description: '`attack` subcommand only — which attack family to preview' },
+        count: { type: 'number', description: '`attack` only — how many cases to preview' },
+        alertOnFail: { type: 'boolean', description: 'Exit 1 when post-patch verdict is FAIL (gate-style)', default: false },
+        timeoutMs: { type: 'number', description: 'Subprocess hard timeout (default 120000; mock-judge runs complete in seconds)' },
+      },
+    },
+    handler: async (input) => {
+      const args: string[] = [String(input.subcommand ?? 'run')];
+      // attack family is positional
+      if (input.subcommand === 'attack' && input.family) args.push(String(input.family));
+      if (input.config) args.push('--config', String(input.config));
+      if (input.out) args.push('--out', String(input.out));
+      if (input.in) args.push('--in', String(input.in));
+      if (input.tests !== undefined) args.push('--tests', String(input.tests));
+      if (input.patch === true) args.push('--patch');
+      if (input.mockJudge === true) args.push('--mock-judge');
+      if (input.count !== undefined) args.push('--count', String(input.count));
+      if (input.alertOnFail === true) args.push('--alert-on-fail');
+      if (input.timeoutMs !== undefined) args.push('--timeout-ms', String(input.timeoutMs));
+      const r = await runScript('redblue.mjs', args);
       return { success: r.success, data: r.json, degraded: r.degraded, exitCode: r.exitCode };
     },
   },

@@ -60,6 +60,9 @@ const SUBCOMMANDS: Record<string, string> = {
   // iter 53 — one-command drift detection (compose audit-list + oia-audit + audit-trend)
   'drift-from-history': 'drift-from-history.mjs',
   mint: 'mint.mjs',
+  // @metaharness/redblue@~0.1.1 — adversarial red/blue LLM testing
+  // (init|run|patch|attack|report sub-subcommands handled by redblue.mjs)
+  redblue: 'redblue.mjs',
 };
 
 /**
@@ -68,8 +71,16 @@ const SUBCOMMANDS: Record<string, string> = {
  *   1. ruflo dev tree   (cwd / ../plugins/...)
  *   2. ruflo wrapper    (ruflo/node_modules/@claude-flow/cli/...)
  *   3. npx              (npm-cache/__npx/... — fall back to cwd-scan)
+ *
+ * `requiredScript`, if provided, narrows the match: the returned dir must
+ * contain BOTH `_harness.mjs` (proves it's a plugin-scripts dir) AND the
+ * named script. This guards against the publish-artifact mirror at
+ * `v3/@claude-flow/cli/plugins/ruflo-metaharness/scripts/` getting picked
+ * over the source `plugins/ruflo-metaharness/scripts/` when the mirror
+ * lags the source (the mirror is regenerated only at publish time by
+ * `prepublishOnly`).
  */
-function locatePluginScripts(): string | null {
+function locatePluginScripts(requiredScript?: string): string | null {
   const candidates: string[] = [];
   // Up from the cli dist dir
   let p = resolve(__dirname);
@@ -86,7 +97,9 @@ function locatePluginScripts(): string | null {
   candidates.push(join(cwd, 'node_modules', '@claude-flow', 'cli', 'plugins', 'ruflo-metaharness', 'scripts'));
 
   for (const c of candidates) {
-    if (existsSync(join(c, '_harness.mjs'))) return c;
+    if (!existsSync(join(c, '_harness.mjs'))) continue;
+    if (requiredScript && !existsSync(join(c, requiredScript))) continue;
+    return c;
   }
   return null;
 }
@@ -115,7 +128,7 @@ export const metaharnessCommand: Command = {
       // iter 73 — list reflects all 10 dispatchable subcommands (was
       // stale at the iter-3 list of 5). Keep this synced with the
       // SUBCOMMANDS map above.
-      description: 'One of: score | genome | mcp-scan | threat-model | oia-audit | audit-list | audit-trend | similarity | drift-from-history | mint',
+      description: 'One of: score | genome | mcp-scan | threat-model | oia-audit | audit-list | audit-trend | similarity | drift-from-history | mint | redblue',
       type: 'string' as const,
     },
   ],
@@ -174,6 +187,7 @@ export const metaharnessCommand: Command = {
       output.writeln('  similarity    ADR-152 — weighted similarity between two harness fingerprints');
       output.writeln('  drift-from-history  iter 53 — diff current state against most recent audit (1-command drift)');
       output.writeln('  mint          scaffold a custom harness (dry-run by default)');
+      output.writeln('  redblue       adversarial red/blue LLM testing (init|run|patch|attack|report)');
       output.writeln('');
       output.writeln('Each subcommand accepts --format json|table and --help.');
       output.writeln('');
@@ -187,7 +201,7 @@ export const metaharnessCommand: Command = {
       return { success: false, exitCode: 2, data: { subcommand } };
     }
 
-    const scriptDir = locatePluginScripts();
+    const scriptDir = locatePluginScripts(SUBCOMMANDS[subcommand]);
     if (!scriptDir) {
       output.writeln(
         output.warning(

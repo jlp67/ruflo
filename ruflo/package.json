@@ -46,7 +46,8 @@
     "metaharness": "~0.2.6",
     "@metaharness/router": "~0.3.2",
     "@metaharness/kernel": "~0.1.0",
-    "@metaharness/darwin": "~0.3.1"
+    "@metaharness/darwin": "~0.3.1",
+    "@metaharness/redblue": "~0.1.1"
   },
   "overrides": {
     "ruvector": "^0.2.27",

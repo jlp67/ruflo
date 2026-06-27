@@ -74,7 +74,7 @@ async function main() {
   // ──────────────────────────────────────────────────────────────────
   console.log('Phase 1 — module shape');
   assert(Array.isArray(tools), 'metaharnessTools is an array');
-  assert(tools.length === 12, `12 tools registered (got ${tools.length})`);
+  assert(tools.length === 13, `13 tools registered (got ${tools.length})`);
 
   const expectedNames = new Set([
     'metaharness_score',
@@ -92,6 +92,8 @@ async function main() {
     'metaharness_bench',
     'metaharness_evolve',
     'metaharness_security_bench',
+    // @metaharness/redblue@~0.1.1 — adversarial red/blue LLM testing
+    'metaharness_redblue',
   ]);
   const actualNames = new Set(tools.map((t) => t.name));
   for (const name of expectedNames) {
@@ -145,6 +147,12 @@ async function main() {
       // test doesn't pollute namespaces.
       input = { dryRun: true };
     }
+    if (tool.name === 'metaharness_redblue') {
+      // `attack` preview is the fastest path that exercises the upstream
+      // binary without needing OPENROUTER_API_KEY or running any model
+      // calls. Count=1 keeps cold-cache npx fetch the dominant cost.
+      input = { subcommand: 'attack', family: 'prompt', count: 1 };
+    }
 
     // iter 124 → 130 — timeouts have crept up as CI cold-cache npx
     // warmup costs got measured. Final budgets:
@@ -157,7 +165,11 @@ async function main() {
     // ONNX). 180s gives 30x headroom over the local cost.
     const isChainTool = tool.name === 'metaharness_drift_from_history'
       || tool.name === 'metaharness_oia_audit'
-      || tool.name === 'metaharness_audit_list';
+      || tool.name === 'metaharness_audit_list'
+      // redblue: `attack prompt --count 1` is preview-only (no model
+      // calls) but the cold-cache `npx -y @metaharness/redblue@~0.1.1`
+      // fetch can take 30-60s. 180s gives 3x headroom.
+      || tool.name === 'metaharness_redblue';
     const timeoutMs = isChainTool ? 180_000 : 60_000;
     const handlerPromise = tool.handler(input);
     const timeoutPromise = new Promise((_, reject) =>
@@ -432,7 +444,7 @@ async function main() {
     for (const f of failures) console.log(`  - ${f}`);
     process.exit(1);
   }
-  console.log('\n✓ All 9 MCP tools satisfy the runtime contract.');
+  console.log('\n✓ All 13 MCP tools satisfy the runtime contract.');
 }
 
 main().catch((e) => {
