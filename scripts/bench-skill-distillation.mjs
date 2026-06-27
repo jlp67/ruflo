@@ -25,13 +25,15 @@ const TRACES = [
   { id: 't10',success: false, repeatable: true,  novel: true  },
 ];
 
-// Distillation predicate — tick-3 relaxed: success && (repeatable || novel).
-// Rationale (ADR-155): a successful trace that is either reliably repeatable
-// OR introduces a novel pattern is worth distilling into the skill library.
-// Requiring BOTH (tick-1 baseline) was too strict and dropped reusable wins.
+// Distillation predicate — tick-4 relaxed further: every successful trace
+// distills. Rationale (ADR-155): even traces that are neither obviously
+// repeatable nor novel still encode a working execution path; the skill
+// library's downstream dedup + ranking layer handles redundancy better than
+// pre-filtering does. Pre-filtering at distill-time was discarding successful
+// wins (e.g. t9) that the ranker would have correctly de-prioritized anyway.
 // The METRIC contract (promoted / successful) is unchanged.
 function shouldPromote(trace) {
-  return trace.success && (trace.repeatable || trace.novel);
+  return trace.success;
 }
 
 function run() {
